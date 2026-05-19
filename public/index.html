@@ -43,6 +43,7 @@
               <input id="modelInput" type="text" autocomplete="off" />
             </label>
           </div>
+          <button class="ide-button" id="ideButton" type="button">IDE</button>
           <button class="ghost-button" id="settingsButton" type="button">参数</button>
         </header>
 
@@ -82,6 +83,63 @@
           </div>
         </form>
       </dialog>
+
+      <aside class="ide-drawer" id="ideDrawer" aria-label="IDE 工作区" aria-hidden="true">
+        <div class="ide-head">
+          <div>
+            <strong>IDE 工作区</strong>
+            <span>项目上下文 / 代码生成 / 调试记录</span>
+          </div>
+          <button class="icon-button" id="closeIdeButton" type="button" aria-label="关闭 IDE">×</button>
+        </div>
+        <div class="ide-body">
+          <section class="ide-files" aria-label="项目文件">
+            <button class="active" type="button">server.js</button>
+            <button type="button">public/app.js</button>
+            <button type="button">public/styles.css</button>
+            <button type="button">README.md</button>
+          </section>
+          <section class="ide-editor" aria-label="代码草稿">
+            <div class="editor-tabs">
+              <span class="active">代码助手</span>
+              <span>运行输出</span>
+            </div>
+            <textarea id="ideNotes" spellcheck="false">在这里记录你想让 AI 修改的代码、接口或报错信息。后续可以接入真实文件树、在线编辑器和终端输出。</textarea>
+            <section class="nl2sql-panel" aria-label="NL2SQL 和智能图表">
+              <div class="nl2sql-head">
+                <div>
+                  <strong>NL2SQL</strong>
+                  <span>自然语言生成 SQL，并根据结果数据推荐图表</span>
+                </div>
+                <select id="sqlDialect" aria-label="SQL 方言">
+                  <option>MySQL</option>
+                  <option>PostgreSQL</option>
+                  <option>SQLite</option>
+                  <option>SQL Server</option>
+                </select>
+              </div>
+              <label>
+                <span>表结构</span>
+                <textarea id="schemaInput" spellcheck="false" placeholder="users(id, name, created_at)\norders(id, user_id, amount, created_at)"></textarea>
+              </label>
+              <label>
+                <span>问题</span>
+                <textarea id="sqlQuestionInput" spellcheck="false" placeholder="统计最近 30 天每天的订单金额趋势"></textarea>
+              </label>
+              <button class="sql-action" id="generateSqlButton" type="button">生成 SQL</button>
+              <pre class="sql-output" id="sqlOutput">SQL 会显示在这里</pre>
+              <label>
+                <span>查询结果 JSON / CSV</span>
+                <textarea id="dataInput" spellcheck="false" placeholder='[{"date":"2026-05-01","amount":1280},{"date":"2026-05-02","amount":1660}]'></textarea>
+              </label>
+              <button class="sql-action secondary" id="renderChartButton" type="button">生成图表</button>
+              <div class="chart-summary" id="chartSummary">等待数据</div>
+              <div class="chart-canvas" id="chartCanvas" aria-label="自动图表预览"></div>
+            </section>
+          </section>
+        </div>
+      </aside>
+      <div class="ide-backdrop" id="ideBackdrop" hidden></div>
     </div>
     <script src="/app.js" type="module"></script>
   </body>

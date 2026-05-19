@@ -35,6 +35,7 @@ CUSTOM_MODEL=your-model-name
 
 - `GET /api/providers`：返回当前服务商配置状态
 - `POST /api/chat`：发送聊天请求
+- `POST /api/nl2sql`：根据自然语言和表结构生成 SQL
 
 请求示例：
 
@@ -48,6 +49,27 @@ CUSTOM_MODEL=your-model-name
   ]
 }
 ```
+
+NL2SQL 请求示例：
+
+```json
+{
+  "provider": "deepseek",
+  "model": "deepseek-chat",
+  "dialect": "MySQL",
+  "schema": "orders(id, user_id, amount, created_at)",
+  "question": "统计最近 30 天每天的订单金额趋势"
+}
+```
+
+## NL2SQL 和图表
+
+打开页面右上角 `IDE`，在 `NL2SQL` 区域填写表结构和分析问题，点击“生成 SQL”。执行 SQL 后，可以把查询结果粘贴为 JSON 或 CSV，点击“生成图表”，前端会根据字段类型自动选择：
+
+- 日期 + 数值：折线图
+- 类目 + 数值：柱状图
+- 少量类目占比：饼图
+- 其他结构：表格预览
 
 ## 文件结构
 

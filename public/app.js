@@ -15,6 +15,19 @@ const statusDot = document.querySelector("#statusDot");
 const providerStatus = document.querySelector("#providerStatus");
 const menuButton = document.querySelector("#menuButton");
 const sidebar = document.querySelector(".sidebar");
+const ideButton = document.querySelector("#ideButton");
+const closeIdeButton = document.querySelector("#closeIdeButton");
+const ideDrawer = document.querySelector("#ideDrawer");
+const ideBackdrop = document.querySelector("#ideBackdrop");
+const sqlDialect = document.querySelector("#sqlDialect");
+const schemaInput = document.querySelector("#schemaInput");
+const sqlQuestionInput = document.querySelector("#sqlQuestionInput");
+const generateSqlButton = document.querySelector("#generateSqlButton");
+const sqlOutput = document.querySelector("#sqlOutput");
+const dataInput = document.querySelector("#dataInput");
+const renderChartButton = document.querySelector("#renderChartButton");
+const chartSummary = document.querySelector("#chartSummary");
+const chartCanvas = document.querySelector("#chartCanvas");
 
 const state = {
   chats: [],
@@ -280,6 +293,214 @@ temperatureInput.addEventListener("input", () => {
   temperatureValue.value = temperatureInput.value;
 });
 menuButton.addEventListener("click", () => sidebar.classList.toggle("open"));
+ideButton.addEventListener("click", openIde);
+closeIdeButton.addEventListener("click", closeIde);
+ideBackdrop.addEventListener("click", closeIde);
+generateSqlButton.addEventListener("click", generateSql);
+renderChartButton.addEventListener("click", renderDataChart);
+
+function openIde() {
+  ideDrawer.classList.add("open");
+  ideDrawer.setAttribute("aria-hidden", "false");
+  ideBackdrop.hidden = false;
+}
+
+function closeIde() {
+  ideDrawer.classList.remove("open");
+  ideDrawer.setAttribute("aria-hidden", "true");
+  ideBackdrop.hidden = true;
+}
+
+async function generateSql() {
+  const question = sqlQuestionInput.value.trim();
+  if (!question) {
+    sqlOutput.textContent = "请先输入你想分析的问题。";
+    return;
+  }
+
+  generateSqlButton.disabled = true;
+  sqlOutput.textContent = "正在生成 SQL...";
+
+  try {
+    const response = await fetch("/api/nl2sql", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        provider: providerSelect.value,
+        model: modelInput.value.trim(),
+        temperature: 0.2,
+        dialect: sqlDialect.value,
+        schema: schemaInput.value.trim(),
+        question
+      })
+    });
+    const data = await response.json();
+    sqlOutput.textContent = response.ok ? data.sql : data.error;
+  } catch (error) {
+    sqlOutput.textContent = error.message || "生成 SQL 失败，请检查后端服务。";
+  } finally {
+    generateSqlButton.disabled = false;
+  }
+}
+
+function parseTabularData(raw) {
+  const text = raw.trim();
+  if (!text) return [];
+
+  if (text.startsWith("[") || text.startsWith("{")) {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed.rows)) return parsed.rows;
+    return [parsed];
+  }
+
+  const lines = text.split(/\r?\n/).filter(Boolean);
+  const headers = splitCsvLine(lines[0]);
+  return lines.slice(1).map((line) => {
+    const values = splitCsvLine(line);
+    return headers.reduce((row, header, index) => {
+      row[header] = coerceValue(values[index]);
+      return row;
+    }, {});
+  });
+}
+
+function splitCsvLine(line) {
+  const cells = [];
+  let cell = "";
+  let quoted = false;
+
+  for (const char of line) {
+    if (char === '"') {
+      quoted = !quoted;
+    } else if (char === "," && !quoted) {
+      cells.push(coerceValue(cell.trim()));
+      cell = "";
+    } else {
+      cell += char;
+    }
+  }
+
+  cells.push(coerceValue(cell.trim()));
+  return cells;
+}
+
+function coerceValue(value) {
+  if (value === undefined || value === "") return "";
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && value !== "" ? numeric : value;
+}
+
+function inferChart(rows) {
+  const sample = rows[0] || {};
+  const columns = Object.keys(sample);
+  const numericColumns = columns.filter((column) => rows.some((row) => Number.isFinite(Number(row[column]))));
+  const textColumns = columns.filter((column) => !numericColumns.includes(column));
+  const dateColumn = columns.find((column) => rows.some((row) => !Number.isNaN(Date.parse(row[column]))));
+  const categoryColumn = dateColumn || textColumns[0] || columns[0];
+  const valueColumn = numericColumns[0];
+  const uniqueCategories = new Set(rows.map((row) => row[categoryColumn])).size;
+
+  let type = "table";
+  if (dateColumn && valueColumn) type = "line";
+  else if (valueColumn && uniqueCategories > 1 && uniqueCategories <= 6 && rows.length <= 8) type = "pie";
+  else if (valueColumn && categoryColumn) type = "bar";
+
+  return { type, categoryColumn, valueColumn, columns };
+}
+
+function renderDataChart() {
+  try {
+    const rows = parseTabularData(dataInput.value);
+    if (!rows.length) {
+      chartSummary.textContent = "请先粘贴 JSON 或 CSV 数据。";
+      chartCanvas.innerHTML = "";
+      return;
+    }
+
+    const chart = inferChart(rows);
+    chartSummary.textContent = `已识别 ${rows.length} 行数据，推荐 ${chart.type.toUpperCase()} 图表。`;
+    chartCanvas.innerHTML = createChartMarkup(rows, chart);
+  } catch (error) {
+    chartSummary.textContent = error.message || "数据解析失败。";
+    chartCanvas.innerHTML = "";
+  }
+}
+
+function createChartMarkup(rows, chart) {
+  if (!chart.valueColumn || chart.type === "table") return createTableMarkup(rows, chart.columns);
+  if (chart.type === "line") return createLineChart(rows, chart);
+  if (chart.type === "pie") return createPieChart(rows, chart);
+  return createBarChart(rows, chart);
+}
+
+function createTableMarkup(rows, columns) {
+  const head = columns.map((column) => `<th>${escapeHtml(column)}</th>`).join("");
+  const body = rows.slice(0, 8).map((row) => (
+    `<tr>${columns.map((column) => `<td>${escapeHtml(row[column])}</td>`).join("")}</tr>`
+  )).join("");
+  return `<table class="data-table"><thead><tr>${head}</tr></thead><tbody>${body}</tbody></table>`;
+}
+
+function createBarChart(rows, chart) {
+  const values = rows.map((row) => Number(row[chart.valueColumn]) || 0);
+  const max = Math.max(...values, 1);
+  const bars = rows.slice(0, 10).map((row, index) => {
+    const value = Number(row[chart.valueColumn]) || 0;
+    const height = Math.max(6, (value / max) * 150);
+    const x = 34 + index * 44;
+    const y = 178 - height;
+    return `
+      <g>
+        <rect x="${x}" y="${y}" width="26" height="${height}" rx="4"></rect>
+        <text x="${x + 13}" y="198">${escapeHtml(row[chart.categoryColumn])}</text>
+      </g>
+    `;
+  }).join("");
+  return `<svg class="chart-svg bar-chart" viewBox="0 0 500 220" role="img">${bars}</svg>`;
+}
+
+function createLineChart(rows, chart) {
+  const values = rows.map((row) => Number(row[chart.valueColumn]) || 0);
+  const max = Math.max(...values, 1);
+  const points = rows.slice(0, 12).map((row, index, list) => {
+    const value = Number(row[chart.valueColumn]) || 0;
+    const x = 28 + index * (430 / Math.max(list.length - 1, 1));
+    const y = 178 - (value / max) * 145;
+    return `${x},${y}`;
+  });
+  const dots = points.map((point) => {
+    const [x, y] = point.split(",");
+    return `<circle cx="${x}" cy="${y}" r="4"></circle>`;
+  }).join("");
+  return `<svg class="chart-svg line-chart" viewBox="0 0 500 220" role="img"><polyline points="${points.join(" ")}"></polyline>${dots}</svg>`;
+}
+
+function createPieChart(rows, chart) {
+  const total = rows.reduce((sum, row) => sum + (Number(row[chart.valueColumn]) || 0), 0) || 1;
+  let offset = 0;
+  const palette = ["#0f766e", "#c6533b", "#d69d2f", "#345c7c", "#7b5a9a", "#5f7a45"];
+  const slices = rows.slice(0, 6).map((row, index) => {
+    const value = Number(row[chart.valueColumn]) || 0;
+    const percent = value / total;
+    const dash = `${percent * 100} ${100 - percent * 100}`;
+    const slice = `<circle r="56" cx="95" cy="85" fill="transparent" stroke="${palette[index % palette.length]}" stroke-width="42" stroke-dasharray="${dash}" stroke-dashoffset="${-offset}"></circle>`;
+    offset += percent * 100;
+    return slice;
+  }).join("");
+  const legend = rows.slice(0, 6).map((row, index) => (
+    `<span><i style="background:${palette[index % palette.length]}"></i>${escapeHtml(row[chart.categoryColumn])}</span>`
+  )).join("");
+  return `<div class="pie-wrap"><svg class="chart-svg pie-chart" viewBox="0 0 190 170" role="img">${slices}</svg><div class="pie-legend">${legend}</div></div>`;
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
 
 suggestions.addEventListener("click", (event) => {
   const button = event.target.closest("button");

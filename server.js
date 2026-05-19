@@ -90,6 +90,118 @@ function publicProvider(provider) {
   };
 }
 
+function extractSqlFromText(text) {
+  const codeBlock = text.match(/```(?:sql)?\s*([\s\S]*?)```/i);
+  if (codeBlock) return codeBlock[1].trim();
+
+  const selectIndex = text.search(/\b(select|with)\b/i);
+  if (selectIndex >= 0) return text.slice(selectIndex).trim();
+
+  return text.trim();
+}
+
+async function requestModelCompletion({ providerId, model, messages, temperature }) {
+  const provider = providers[providerId];
+
+  if (!provider) {
+    const error = new Error(`Unknown provider: ${providerId}`);
+    error.status = 400;
+    throw error;
+  }
+
+  if (!provider.apiKey || !provider.baseUrl) {
+    const error = new Error(`${provider.label} is not configured. Please set its API key and base URL.`);
+    error.status = 400;
+    throw error;
+  }
+
+  const upstreamUrl = new URL(provider.path, provider.baseUrl);
+  const upstream = await fetch(upstreamUrl, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${provider.apiKey}`
+    },
+    body: JSON.stringify({
+      model: model || provider.defaultModel,
+      messages,
+      temperature: Number(temperature ?? 0.2),
+      stream: false
+    })
+  });
+
+  const text = await upstream.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    data = { error: text };
+  }
+
+  if (!upstream.ok) {
+    const error = new Error(data?.error?.message || data?.error || "Model request failed.");
+    error.status = upstream.status;
+    error.details = data;
+    throw error;
+  }
+
+  return {
+    content: data.choices?.[0]?.message?.content || "",
+    model: data.model || model || provider.defaultModel,
+    usage: data.usage || null
+  };
+}
+
+async function handleNl2Sql(req, res) {
+  try {
+    const body = await readBody(req);
+    const question = String(body.question || "").trim();
+    const schema = String(body.schema || "").trim();
+    const dialect = String(body.dialect || "MySQL").trim();
+
+    if (!question) {
+      sendJson(res, 400, { error: "question is required." });
+      return;
+    }
+
+    const messages = [
+      {
+        role: "system",
+        content: [
+          "You are a senior data analyst that writes safe SQL from natural language.",
+          "Return only one SQL query. Prefer read-only SELECT or WITH queries.",
+          "Use the provided schema exactly. If a requested field is missing, add a short SQL comment explaining the assumption.",
+          `SQL dialect: ${dialect}.`
+        ].join("\n")
+      },
+      {
+        role: "user",
+        content: `Database schema:\n${schema || "No schema provided."}\n\nQuestion:\n${question}`
+      }
+    ];
+
+    const completion = await requestModelCompletion({
+      providerId: body.provider || "deepseek",
+      model: body.model,
+      messages,
+      temperature: body.temperature ?? 0.2
+    });
+
+    sendJson(res, 200, {
+      sql: extractSqlFromText(completion.content),
+      raw: completion.content,
+      provider: body.provider || "deepseek",
+      model: completion.model,
+      usage: completion.usage
+    });
+  } catch (error) {
+    sendJson(res, error.status || 500, {
+      error: error.message || "NL2SQL request failed.",
+      details: error.details || null
+    });
+  }
+}
+
 async function handleChat(req, res) {
   try {
     const body = await readBody(req);
@@ -187,6 +299,11 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "POST" && req.url === "/api/chat") {
     await handleChat(req, res);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/api/nl2sql") {
+    await handleNl2Sql(req, res);
     return;
   }
 
