@@ -40,7 +40,7 @@
             </label>
             <label>
               <span>模型</span>
-              <input id="modelInput" type="text" autocomplete="off" />
+              <select id="modelInput"></select>
             </label>
           </div>
           <button class="ide-button" id="ideButton" type="button">IDE</button>
@@ -57,10 +57,10 @@
           </div>
 
           <form class="composer" id="chatForm">
-            <textarea id="promptInput" rows="1" placeholder="向 AI 提问，支持 DeepSeek / GLM / 自定义 OpenAI-compatible API"></textarea>
+            <textarea id="promptInput" rows="1" placeholder="试试：把这段想法整理成可执行方案，并给出下一步建议"></textarea>
             <button class="send-button" id="sendButton" type="submit" aria-label="发送">↑</button>
           </form>
-          <p class="hint">后端会读取环境变量中的 API Key；前端不会暴露密钥。</p>
+          <p class="hint">支持 DeepSeek / GLM / 自定义 OpenAI-compatible API；API Key 仅由后端读取，前端不会暴露密钥。</p>
         </section>
       </main>
 

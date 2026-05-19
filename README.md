@@ -20,16 +20,22 @@ npm run dev
 DEEPSEEK_API_KEY=sk-...
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-chat
+DEEPSEEK_MODELS=deepseek-chat,deepseek-reasoner
 
 GLM_API_KEY=...
 GLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
 GLM_MODEL=glm-4-plus
+GLM_MODELS=glm-4-plus,glm-4-air,glm-4-flash,glm-4-long
 
 CUSTOM_API_KEY=sk-...
 CUSTOM_BASE_URL=https://your-provider.example.com/v1
 CUSTOM_CHAT_PATH=/chat/completions
 CUSTOM_MODEL=your-model-name
+CUSTOM_MODELS=your-model-name,another-model-name
 ```
+
+模型名要和服务商实际支持的名称一致。DeepSeek 常用 `deepseek-chat` 或 `deepseek-reasoner`；如果填写不存在的模型名，或把第三方聚合平台的模型名填到 DeepSeek 官方地址上，可能会返回 `Request Blocked` 或 HTML 错误页。
+顶部模型下拉框来自 `*_MODELS` 变量，多个模型用英文逗号分隔；`*_MODEL` 是默认选中的模型。
 
 ## 接口
 

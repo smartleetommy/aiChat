@@ -97,7 +97,6 @@ async function loadProviders() {
       const option = document.createElement("option");
       option.value = provider.id;
       option.textContent = `${provider.label}${provider.configured ? "" : "（未配置）"}`;
-      option.dataset.model = provider.defaultModel;
       providerSelect.append(option);
     });
 
@@ -114,8 +113,18 @@ async function loadProviders() {
 }
 
 function syncModelInput() {
-  const option = providerSelect.selectedOptions[0];
-  modelInput.value = option?.dataset.model || "";
+  const provider = state.providers.find((item) => item.id === providerSelect.value);
+  const models = provider?.models?.length ? provider.models : [provider?.defaultModel].filter(Boolean);
+  modelInput.innerHTML = "";
+
+  models.forEach((model) => {
+    const option = document.createElement("option");
+    option.value = model;
+    option.textContent = model;
+    modelInput.append(option);
+  });
+
+  modelInput.value = provider?.defaultModel || models[0] || "";
 }
 
 function render() {
@@ -202,7 +211,14 @@ function createMessageNode(message) {
 
   const avatar = document.createElement("div");
   avatar.className = "avatar";
-  avatar.textContent = message.role === "assistant" ? "AI" : "你";
+  if (message.role === "assistant") {
+    const img = document.createElement("img");
+    img.src = "/assets/assistant-avatar.png";
+    img.alt = "问答助手头像";
+    avatar.append(img);
+  } else {
+    avatar.textContent = "你";
+  }
 
   const bubble = document.createElement("div");
   bubble.className = "bubble";

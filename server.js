@@ -10,27 +10,38 @@ const port = Number(process.env.PORT || 3000);
 
 await loadDotEnv(path.join(__dirname, ".env"));
 
+function parseModelList(value, fallback) {
+  const models = String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+  return models.length ? models : fallback;
+}
+
 const providers = {
   deepseek: {
     label: "DeepSeek",
     apiKey: process.env.DEEPSEEK_API_KEY,
     baseUrl: process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com",
     path: "/chat/completions",
-    defaultModel: process.env.DEEPSEEK_MODEL || "deepseek-chat"
+    defaultModel: process.env.DEEPSEEK_MODEL || "deepseek-chat",
+    models: parseModelList(process.env.DEEPSEEK_MODELS, ["deepseek-chat", "deepseek-reasoner"])
   },
   glm: {
     label: "GLM",
     apiKey: process.env.GLM_API_KEY,
     baseUrl: process.env.GLM_BASE_URL || "https://open.bigmodel.cn/api/paas/v4",
     path: "/chat/completions",
-    defaultModel: process.env.GLM_MODEL || "glm-4-plus"
+    defaultModel: process.env.GLM_MODEL || "glm-4-plus",
+    models: parseModelList(process.env.GLM_MODELS, ["glm-4-plus", "glm-4-air", "glm-4-flash", "glm-4-long"])
   },
   custom: {
     label: "Custom",
     apiKey: process.env.CUSTOM_API_KEY,
     baseUrl: process.env.CUSTOM_BASE_URL,
     path: process.env.CUSTOM_CHAT_PATH || "/chat/completions",
-    defaultModel: process.env.CUSTOM_MODEL || "gpt-compatible-model"
+    defaultModel: process.env.CUSTOM_MODEL || "gpt-compatible-model",
+    models: parseModelList(process.env.CUSTOM_MODELS, [process.env.CUSTOM_MODEL || "gpt-compatible-model"])
   }
 };
 
@@ -86,7 +97,8 @@ function publicProvider(provider) {
     id: provider,
     label: providers[provider].label,
     configured: Boolean(providers[provider].apiKey && providers[provider].baseUrl),
-    defaultModel: providers[provider].defaultModel
+    defaultModel: providers[provider].defaultModel,
+    models: Array.from(new Set([providers[provider].defaultModel, ...providers[provider].models]))
   };
 }
 
@@ -98,6 +110,108 @@ function extractSqlFromText(text) {
   if (selectIndex >= 0) return text.slice(selectIndex).trim();
 
   return text.trim();
+}
+
+function stripHtml(text) {
+  return text
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function summarizeUpstreamError(text, fallback = "模型服务请求失败。") {
+  if (!text) return fallback;
+
+  const title = text.match(/<title>([\s\S]*?)<\/title>/i)?.[1]?.trim();
+  const plain = stripHtml(text);
+  const summary = title || plain.slice(0, 220);
+
+  if (/request blocked/i.test(summary) || /request blocked/i.test(plain)) {
+    return "模型服务请求被网关拦截了。请检查 API Key、Base URL、模型名称是否正确，或当前网络是否允许访问该模型服务。";
+  }
+
+  return summary || fallback;
+}
+
+async function parseUpstreamResponse(response) {
+  const text = await response.text();
+  const contentType = response.headers.get("content-type") || "";
+  const looksLikeHtml = contentType.includes("text/html") || /^\s*<!doctype html/i.test(text) || /^\s*<html/i.test(text);
+
+  if (looksLikeHtml) {
+    return {
+      data: null,
+      rawText: text,
+      errorMessage: summarizeUpstreamError(text)
+    };
+  }
+
+  try {
+    return { data: JSON.parse(text), rawText: text, errorMessage: null };
+  } catch {
+    return {
+      data: null,
+      rawText: text,
+      errorMessage: summarizeUpstreamError(text)
+    };
+  }
+}
+
+function writeSse(res, event, payload) {
+  res.write(`event: ${event}\n`);
+  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+}
+
+function parseStreamLine(line) {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("data:")) return null;
+
+  const data = trimmed.slice(5).trim();
+  if (!data || data === "[DONE]") return { done: true };
+
+  try {
+    return JSON.parse(data);
+  } catch {
+    return { error: data };
+  }
+}
+
+async function proxyChatStream(upstream, res) {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let fullContent = "";
+
+  for await (const chunk of upstream.body) {
+    buffer += decoder.decode(chunk, { stream: true });
+    const lines = buffer.split(/\r?\n/);
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      const payload = parseStreamLine(line);
+      if (!payload) continue;
+      if (payload.done) {
+        writeSse(res, "done", { content: fullContent });
+        res.end();
+        return;
+      }
+
+      if (payload.error) {
+        writeSse(res, "error", { error: payload.error });
+        continue;
+      }
+
+      const delta = payload.choices?.[0]?.delta?.content || payload.choices?.[0]?.message?.content || "";
+      if (delta) {
+        fullContent += delta;
+        writeSse(res, "delta", { content: delta });
+      }
+    }
+  }
+
+  writeSse(res, "done", { content: fullContent });
+  res.end();
 }
 
 async function requestModelCompletion({ providerId, model, messages, temperature }) {
@@ -130,18 +244,19 @@ async function requestModelCompletion({ providerId, model, messages, temperature
     })
   });
 
-  const text = await upstream.text();
-  let data;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    data = { error: text };
-  }
+  const { data, rawText, errorMessage } = await parseUpstreamResponse(upstream);
 
   if (!upstream.ok) {
-    const error = new Error(data?.error?.message || data?.error || "Model request failed.");
+    const error = new Error(data?.error?.message || data?.error || errorMessage || "Model request failed.");
     error.status = upstream.status;
-    error.details = data;
+    error.details = data || { raw: rawText.slice(0, 500) };
+    throw error;
+  }
+
+  if (!data?.choices?.[0]?.message?.content) {
+    const error = new Error(errorMessage || "模型服务没有返回有效的聊天内容，请检查模型名称和接口格式。");
+    error.status = 502;
+    error.details = data || { raw: rawText.slice(0, 500) };
     throw error;
   }
 
@@ -226,6 +341,7 @@ async function handleChat(req, res) {
       return;
     }
 
+    const stream = body.stream !== false;
     const upstreamUrl = new URL(provider.path, provider.baseUrl);
     const upstream = await fetch(upstreamUrl, {
       method: "POST",
@@ -237,22 +353,47 @@ async function handleChat(req, res) {
         model: body.model || provider.defaultModel,
         messages,
         temperature: Number(body.temperature ?? 0.7),
-        stream: false
+        stream
       })
     });
 
-    const text = await upstream.text();
-    let data;
-    try {
-      data = JSON.parse(text);
-    } catch {
-      data = { error: text };
+    if (stream) {
+      const contentType = upstream.headers.get("content-type") || "";
+
+      if (!upstream.ok || contentType.includes("text/html")) {
+        const { data, rawText, errorMessage } = await parseUpstreamResponse(upstream);
+        sendJson(res, upstream.ok ? 502 : upstream.status, {
+          error: data?.error?.message || data?.error || errorMessage || "Model stream request failed.",
+          details: data || { raw: rawText.slice(0, 500) }
+        });
+        return;
+      }
+
+      res.writeHead(200, {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache, no-transform",
+        connection: "keep-alive",
+        "x-accel-buffering": "no"
+      });
+
+      await proxyChatStream(upstream, res);
+      return;
     }
+
+    const { data, rawText, errorMessage } = await parseUpstreamResponse(upstream);
 
     if (!upstream.ok) {
       sendJson(res, upstream.status, {
-        error: data?.error?.message || data?.error || "模型服务请求失败。",
-        details: data
+        error: data?.error?.message || data?.error || errorMessage || "模型服务请求失败。",
+        details: data || { raw: rawText.slice(0, 500) }
+      });
+      return;
+    }
+
+    if (!data?.choices?.[0]?.message?.content) {
+      sendJson(res, 502, {
+        error: errorMessage || "模型服务没有返回有效的聊天内容，请检查模型名称和接口格式。",
+        details: data || { raw: rawText.slice(0, 500) }
       });
       return;
     }
