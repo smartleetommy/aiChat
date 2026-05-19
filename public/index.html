@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI 问答工作台</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="会话侧边栏">
+        <div class="brand">
+          <span class="brand-mark">AI</span>
+          <div>
+            <strong>问答系统</strong>
+            <small>Multi-provider console</small>
+          </div>
+        </div>
+
+        <button class="new-chat" id="newChatButton" type="button">
+          <span aria-hidden="true">+</span>
+          新建对话
+        </button>
+
+        <nav class="chat-list" id="chatList" aria-label="历史对话"></nav>
+
+        <div class="sidebar-footer">
+          <span class="status-dot" id="statusDot"></span>
+          <span id="providerStatus">正在检测模型配置</span>
+        </div>
+      </aside>
+
+      <main class="chat-stage">
+        <header class="topbar">
+          <button class="icon-button menu-button" id="menuButton" type="button" aria-label="展开会话栏">☰</button>
+          <div class="model-controls">
+            <label>
+              <span>服务商</span>
+              <select id="providerSelect"></select>
+            </label>
+            <label>
+              <span>模型</span>
+              <input id="modelInput" type="text" autocomplete="off" />
+            </label>
+          </div>
+          <button class="ghost-button" id="settingsButton" type="button">参数</button>
+        </header>
+
+        <section class="messages" id="messages" aria-live="polite"></section>
+
+        <section class="composer-wrap">
+          <div class="suggestions" id="suggestions">
+            <button type="button">帮我写一份产品需求文档</button>
+            <button type="button">解释这段报错并给出修复步骤</button>
+            <button type="button">生成一段中文营销文案</button>
+          </div>
+
+          <form class="composer" id="chatForm">
+            <textarea id="promptInput" rows="1" placeholder="向 AI 提问，支持 DeepSeek / GLM / 自定义 OpenAI-compatible API"></textarea>
+            <button class="send-button" id="sendButton" type="submit" aria-label="发送">↑</button>
+          </form>
+          <p class="hint">后端会读取环境变量中的 API Key；前端不会暴露密钥。</p>
+        </section>
+      </main>
+
+      <dialog class="settings-dialog" id="settingsDialog">
+        <form method="dialog">
+          <div class="dialog-head">
+            <h2>生成参数</h2>
+            <button class="icon-button" value="close" aria-label="关闭">×</button>
+          </div>
+          <label class="range-row">
+            <span>Temperature</span>
+            <input id="temperatureInput" type="range" min="0" max="1.5" step="0.1" value="0.7" />
+            <output id="temperatureValue">0.7</output>
+          </label>
+          <div class="env-note">
+            <strong>环境变量示例</strong>
+            <code>DEEPSEEK_API_KEY=sk-...</code>
+            <code>GLM_API_KEY=...</code>
+            <code>CUSTOM_BASE_URL=https://your-api.example.com/v1</code>
+          </div>
+        </form>
+      </dialog>
+    </div>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
