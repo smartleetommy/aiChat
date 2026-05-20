@@ -10,11 +10,16 @@ const settingsButton = document.querySelector("#settingsButton");
 const settingsDialog = document.querySelector("#settingsDialog");
 const temperatureInput = document.querySelector("#temperatureInput");
 const temperatureValue = document.querySelector("#temperatureValue");
+const deepThinkingInput = document.querySelector("#deepThinkingInput");
+const thinkingEffortInput = document.querySelector("#thinkingEffortInput");
 const suggestions = document.querySelector("#suggestions");
 const statusDot = document.querySelector("#statusDot");
 const providerStatus = document.querySelector("#providerStatus");
+const appShell = document.querySelector(".app-shell");
 const menuButton = document.querySelector("#menuButton");
 const sidebar = document.querySelector(".sidebar");
+const closeSidebarButton = document.querySelector("#closeSidebarButton");
+const sidebarBackdrop = document.querySelector("#sidebarBackdrop");
 const ideButton = document.querySelector("#ideButton");
 const closeIdeButton = document.querySelector("#closeIdeButton");
 const ideDrawer = document.querySelector("#ideDrawer");
@@ -23,7 +28,9 @@ const sqlDialect = document.querySelector("#sqlDialect");
 const schemaInput = document.querySelector("#schemaInput");
 const sqlQuestionInput = document.querySelector("#sqlQuestionInput");
 const generateSqlButton = document.querySelector("#generateSqlButton");
+const executeSqlButton = document.querySelector("#executeSqlButton");
 const sqlOutput = document.querySelector("#sqlOutput");
+const databaseStatus = document.querySelector("#databaseStatus");
 const dataInput = document.querySelector("#dataInput");
 const renderChartButton = document.querySelector("#renderChartButton");
 const chartSummary = document.querySelector("#chartSummary");
@@ -33,6 +40,7 @@ const state = {
   chats: [],
   activeId: null,
   providers: [],
+  database: null,
   loading: false,
   copyIndex: 0,
   copyTimer: null
@@ -112,6 +120,27 @@ async function loadProviders() {
   }
 }
 
+async function loadDatabaseStatus() {
+  try {
+    const response = await fetch("/api/database/status");
+    state.database = await response.json();
+
+    if (state.database.configured) {
+      databaseStatus.textContent = `MySQL 已连接配置：${state.database.database}，最多返回 ${state.database.maxRows} 行`;
+      databaseStatus.classList.add("ready");
+      executeSqlButton.disabled = false;
+    } else {
+      databaseStatus.textContent = "MySQL 尚未配置，仍可生成 SQL";
+      databaseStatus.classList.remove("ready");
+      executeSqlButton.disabled = true;
+    }
+  } catch {
+    databaseStatus.textContent = "数据库状态检测失败";
+    databaseStatus.classList.remove("ready");
+    executeSqlButton.disabled = true;
+  }
+}
+
 function syncModelInput() {
   const provider = state.providers.find((item) => item.id === providerSelect.value);
   const models = provider?.models?.length ? provider.models : [provider?.defaultModel].filter(Boolean);
@@ -143,7 +172,7 @@ function renderChatList() {
       state.activeId = chat.id;
       saveChats();
       render();
-      sidebar.classList.remove("open");
+      closeSidebar();
     });
     chatList.append(button);
   });
@@ -223,12 +252,15 @@ function createMessageNode(message) {
   const bubble = document.createElement("div");
   bubble.className = "bubble";
 
-  if (message.pending) {
+  if (message.thinking && !message.content) {
+    bubble.innerHTML = `<span class="thinking-status"><span></span>深度思考中</span>`;
+  } else if (message.pending) {
     bubble.innerHTML = `<span class="typing"><span></span><span></span><span></span></span>`;
   } else {
     bubble.textContent = message.content;
   }
 
+  bubble.innerHTML = renderBubbleHtml(message);
   item.append(avatar, bubble);
   return item;
 }
@@ -236,6 +268,194 @@ function createMessageNode(message) {
 function autoResizeInput() {
   promptInput.style.height = "auto";
   promptInput.style.height = `${Math.min(promptInput.scrollHeight, 180)}px`;
+}
+
+function updateStreamingBubble(content) {
+  const bubbles = messagesEl.querySelectorAll(".message.assistant .bubble");
+  const bubble = bubbles[bubbles.length - 1];
+  if (bubble) bubble.textContent = content;
+}
+
+function updateThinkingBubble(status = "深度思考中") {
+  return;
+  const bubbles = messagesEl.querySelectorAll(".message.assistant .bubble");
+  const bubble = bubbles[bubbles.length - 1];
+  if (bubble) bubble.innerHTML = `<span class="thinking-status"><span></span>${escapeHtml(status)}</span>`;
+}
+
+function updateAssistantBubble(message) {
+  const bubbles = messagesEl.querySelectorAll(".message.assistant .bubble");
+  const bubble = bubbles[bubbles.length - 1];
+  if (!bubble) return;
+  bubble.innerHTML = renderBubbleHtml(message);
+  if (message.streaming) {
+    const reasoning = bubble.querySelector(".reasoning-content");
+    if (reasoning) reasoning.scrollTop = reasoning.scrollHeight;
+  }
+}
+
+function renderBubbleHtml(message) {
+  const hasThinking = message.thinking || message.thinkingSteps?.length;
+  const hasReasoning = Boolean(message.reasoningContent);
+  const showReasoning = Boolean(message.deepThinking && hasReasoning);
+  const parts = [];
+
+  if (showReasoning) {
+    parts.push(`
+      <div class="thinking-panel ${message.streaming ? "streaming" : "after-answer"}">
+        <details ${message.streaming ? "open" : ""}>
+          <summary><span class="thinking-status"><span></span>查看深度思考过程</span></summary>
+          <pre class="reasoning-content">${escapeHtml(message.reasoningContent)}</pre>
+        </details>
+      </div>
+    `);
+  } else if (message.streaming && message.deepThinking && hasThinking && !message.content) {
+    parts.push(`<span class="thinking-status"><span></span>深度思考中</span>`);
+  }
+
+  if (message.content) {
+    parts.push(`<div class="answer-content">${escapeHtml(message.content)}</div>`);
+  } else if (message.pending && !hasThinking && !showReasoning) {
+    parts.push(`<span class="typing"><span></span><span></span><span></span></span>`);
+  } else if (false && message.streaming && hasThinking && !message.content) {
+    parts.push(`<span class="thinking-status"><span></span>深度思考中</span>`);
+  }
+
+  if (false && hasReasoning && !message.streaming && !message.pending) {
+    parts.push(`
+      <div class="thinking-panel after-answer">
+        <details>
+          <summary><span class="thinking-status"><span></span>查看深度思考过程</span></summary>
+          <pre class="reasoning-content">${escapeHtml(message.reasoningContent)}</pre>
+        </details>
+      </div>
+    `);
+  }
+
+  return parts.join("");
+
+  if (hasThinking || hasReasoning) {
+    const steps = message.thinkingSteps?.length
+      ? message.thinkingSteps
+      : [{ status: "深度思考中", detail: "正在拆解问题并组织回答" }];
+    const stepItems = steps.slice(-6).map((step) => `
+      <li>
+        <strong>${escapeHtml(step.status)}</strong>
+        ${step.detail ? `<span>${escapeHtml(step.detail)}</span>` : ""}
+      </li>
+    `).join("");
+    parts.push(`
+      <div class="thinking-panel">
+        <details ${message.reasoningOpen || message.pending ? "open" : ""}>
+          <summary><span class="thinking-status"><span></span>深度思考过程</span></summary>
+          ${message.reasoningContent ? `<pre class="reasoning-content">${escapeHtml(message.reasoningContent)}</pre>` : ""}
+        </details>
+        <div class="thinking-status"><span></span>深度思考过程</div>
+        <ol>${stepItems}</ol>
+      </div>
+    `);
+  }
+
+  if (message.content) {
+    parts.push(`<div class="answer-content">${escapeHtml(message.content)}</div>`);
+  } else if (message.pending && !hasThinking && !hasReasoning) {
+    parts.push(`<span class="typing"><span></span><span></span><span></span></span>`);
+  }
+
+  return parts.join("");
+}
+
+function friendlyErrorMessage(error) {
+  const message = error?.message || String(error || "");
+  if (message === "fetch failed" || message.includes("Failed to fetch")) {
+    return "连接后端或模型服务失败，请检查服务是否运行、模型 Base URL/API Key 是否正确；详细信息可查看 logs/requests.jsonl。";
+  }
+
+  return message || "请求失败，请检查后端日志 logs/requests.jsonl。";
+}
+
+function parseSseBlock(block) {
+  const event = block.match(/^event:\s*(.+)$/m)?.[1]?.trim() || "message";
+  const dataLines = block
+    .split(/\r?\n/)
+    .filter((line) => line.startsWith("data:"))
+    .map((line) => line.slice(5).trim());
+  const data = dataLines.join("\n");
+
+  if (!data) return { event, data: {} };
+
+  try {
+    return { event, data: JSON.parse(data) };
+  } catch {
+    return { event, data: { content: data } };
+  }
+}
+
+async function readChatStream(response, pending) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const blocks = buffer.split(/\n\n/);
+    buffer = blocks.pop() || "";
+
+    for (const block of blocks) {
+      const parsed = parseSseBlock(block);
+
+      if (parsed.event === "thinking") {
+        if (!pending.deepThinking) continue;
+        pending.thinking = true;
+        updateThinkingBubble(parsed.data.status || "深度思考中");
+      }
+
+      if (parsed.event === "thinking") {
+        if (!pending.deepThinking) continue;
+        pending.thinkingSteps ||= [];
+        pending.thinkingSteps.push({
+          status: parsed.data.status || "深度思考中",
+          detail: parsed.data.detail || ""
+        });
+        updateAssistantBubble(pending);
+      }
+
+      if (parsed.event === "reasoning") {
+        if (!pending.deepThinking) continue;
+        pending.thinking = true;
+        pending.reasoningOpen = true;
+        pending.reasoningContent = `${pending.reasoningContent || ""}${parsed.data.content || ""}`;
+        updateAssistantBubble(pending);
+      }
+
+      if (parsed.event === "delta") {
+        pending.thinking = false;
+        pending.content += parsed.data.content || "";
+        updateStreamingBubble(pending.content);
+        updateAssistantBubble(pending);
+      }
+
+      if (parsed.event === "error") {
+        pending.error = true;
+        pending.content = parsed.data.error || "流式输出失败。";
+        updateStreamingBubble(pending.content);
+      }
+
+      if (parsed.event === "done") {
+        pending.thinking = false;
+        pending.streaming = false;
+        pending.reasoningOpen = false;
+        if (parsed.data.reasoningContent && !pending.reasoningContent) {
+          pending.reasoningContent = parsed.data.reasoningContent;
+        }
+        updateAssistantBubble(pending);
+        return;
+      }
+    }
+  }
 }
 
 async function sendMessage(content) {
@@ -248,7 +468,19 @@ async function sendMessage(content) {
     chat.title = content.trim().slice(0, 28);
   }
 
-  const pending = { role: "assistant", content: "", pending: true };
+  const pending = {
+    role: "assistant",
+    content: "",
+    pending: true,
+    streaming: false,
+    deepThinking: Boolean(deepThinkingInput?.checked),
+    reasoningContent: "",
+    reasoningOpen: false,
+    thinking: Boolean(deepThinkingInput?.checked),
+    thinkingSteps: deepThinkingInput?.checked
+      ? [{ status: "深度思考已开启", detail: "正在准备更细致地分析你的问题" }]
+      : []
+  };
   chat.messages.push(pending);
   state.loading = true;
   sendButton.disabled = true;
@@ -260,7 +492,11 @@ async function sendMessage(content) {
   try {
     const apiMessages = chat.messages
       .filter((message) => !message.pending && !message.error)
-      .map(({ role, content }) => ({ role, content }));
+      .map(({ role, content, reasoningContent }) => {
+        const item = { role, content };
+        if (role === "assistant" && reasoningContent) item.reasoning_content = reasoningContent;
+        return item;
+      });
 
     const response = await fetch("/api/chat", {
       method: "POST",
@@ -269,18 +505,34 @@ async function sendMessage(content) {
         provider: providerSelect.value,
         model: modelInput.value.trim(),
         temperature: temperatureInput.value,
-        messages: apiMessages
+        messages: apiMessages,
+        deepThinking: Boolean(deepThinkingInput?.checked),
+        thinkingEffort: thinkingEffortInput?.value || "high",
+        stream: true
       })
     });
 
-    const data = await response.json();
+    const contentType = response.headers.get("content-type") || "";
+
+    if (!response.ok || !contentType.includes("text/event-stream")) {
+      const data = await response.json();
+      pending.pending = false;
+      pending.content = data.error || "请求失败，请检查模型配置。";
+      pending.thinking = false;
+      pending.error = true;
+      return;
+    }
+
     pending.pending = false;
-    pending.content = response.ok ? data.content : data.error;
-    pending.error = !response.ok;
+    pending.streaming = true;
+    render();
+    await readChatStream(response, pending);
   } catch (error) {
     pending.pending = false;
+    pending.streaming = false;
+    pending.thinking = false;
     pending.error = true;
-    pending.content = error.message || "请求失败，请检查后端服务。";
+    pending.content = friendlyErrorMessage(error);
   } finally {
     state.loading = false;
     sendButton.disabled = false;
@@ -308,12 +560,52 @@ settingsButton.addEventListener("click", () => settingsDialog.showModal());
 temperatureInput.addEventListener("input", () => {
   temperatureValue.value = temperatureInput.value;
 });
-menuButton.addEventListener("click", () => sidebar.classList.toggle("open"));
+deepThinkingInput.addEventListener("change", () => {
+  thinkingEffortInput.disabled = !deepThinkingInput.checked;
+});
+menuButton.addEventListener("click", toggleSidebar);
+closeSidebarButton.addEventListener("click", closeSidebar);
+sidebarBackdrop.addEventListener("click", closeSidebar);
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeSidebar();
+    closeIde();
+  }
+});
 ideButton.addEventListener("click", openIde);
 closeIdeButton.addEventListener("click", closeIde);
 ideBackdrop.addEventListener("click", closeIde);
 generateSqlButton.addEventListener("click", generateSql);
+executeSqlButton.addEventListener("click", executeSql);
 renderChartButton.addEventListener("click", renderDataChart);
+
+function openSidebar() {
+  appShell.classList.remove("sidebar-collapsed");
+  sidebar.classList.add("open");
+  sidebarBackdrop.hidden = !window.matchMedia("(max-width: 860px)").matches;
+  menuButton.setAttribute("aria-expanded", "true");
+}
+
+function closeSidebar() {
+  sidebar.classList.remove("open");
+  appShell.classList.add("sidebar-collapsed");
+  sidebarBackdrop.hidden = true;
+  menuButton.setAttribute("aria-expanded", "false");
+}
+
+function toggleSidebar() {
+  if (sidebar.classList.contains("open") || !appShell.classList.contains("sidebar-collapsed")) {
+    closeSidebar();
+  } else {
+    openSidebar();
+  }
+}
+
+function syncSidebarForViewport() {
+  if (window.matchMedia("(max-width: 860px)").matches) {
+    closeSidebar();
+  }
+}
 
 function openIde() {
   ideDrawer.classList.add("open");
@@ -356,6 +648,39 @@ async function generateSql() {
     sqlOutput.textContent = error.message || "生成 SQL 失败，请检查后端服务。";
   } finally {
     generateSqlButton.disabled = false;
+  }
+}
+
+async function executeSql() {
+  const sql = sqlOutput.textContent.trim();
+  if (!sql || sql === "SQL 会显示在这里") {
+    chartSummary.textContent = "请先生成或粘贴一段 SQL。";
+    return;
+  }
+
+  executeSqlButton.disabled = true;
+  chartSummary.textContent = "正在执行 MySQL 查询...";
+
+  try {
+    const response = await fetch("/api/database/query", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ sql })
+    });
+    const data = await response.json();
+
+    if (!response.ok) {
+      chartSummary.textContent = data.error || "查询失败，请检查 SQL 或数据库配置。";
+      return;
+    }
+
+    dataInput.value = JSON.stringify(data.rows, null, 2);
+    renderDataChart();
+    chartSummary.textContent = `查询完成，返回 ${data.rowCount} 行${data.limited ? "，已按上限截断" : ""}。`;
+  } catch (error) {
+    chartSummary.textContent = error.message || "查询失败，请检查后端服务。";
+  } finally {
+    executeSqlButton.disabled = !state.database?.configured;
   }
 }
 
@@ -529,3 +854,6 @@ suggestions.addEventListener("click", (event) => {
 loadChats();
 render();
 loadProviders();
+loadDatabaseStatus();
+syncSidebarForViewport();
+thinkingEffortInput.disabled = !deepThinkingInput.checked;

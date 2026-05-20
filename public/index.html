@@ -4,13 +4,14 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>AI 问答工作台</title>
-    <link rel="stylesheet" href="/styles.css" />
+    <link rel="stylesheet" href="/styles.css?v=20260520-sidebar-close" />
   </head>
   <body>
     <div class="app-shell">
       <aside class="sidebar" aria-label="会话侧边栏">
+        <button class="icon-button sidebar-close" id="closeSidebarButton" type="button" aria-label="关闭会话栏">×</button>
         <div class="brand">
-          <span class="brand-mark">AI</span>
+          <span class="brand-mark"><img src="/assets/brand-logo.png" alt="AI 问答系统 Logo" /></span>
           <div>
             <strong>问答系统</strong>
             <small>Multi-provider console</small>
@@ -29,6 +30,7 @@
           <span id="providerStatus">正在检测模型配置</span>
         </div>
       </aside>
+      <div class="sidebar-backdrop" id="sidebarBackdrop" hidden></div>
 
       <main class="chat-stage">
         <header class="topbar">
@@ -57,6 +59,17 @@
           </div>
 
           <form class="composer" id="chatForm">
+            <label class="composer-effort" aria-label="思考强度">
+              <span>思考强度</span>
+              <select id="thinkingEffortInput">
+                <option value="high">high</option>
+                <option value="max">max</option>
+              </select>
+            </label>
+            <label class="composer-thinking">
+              <input id="deepThinkingInput" type="checkbox" />
+              <span>深度思考</span>
+            </label>
             <textarea id="promptInput" rows="1" placeholder="试试：把这段想法整理成可执行方案，并给出下一步建议"></textarea>
             <button class="send-button" id="sendButton" type="submit" aria-label="发送">↑</button>
           </form>
@@ -74,6 +87,13 @@
             <span>Temperature</span>
             <input id="temperatureInput" type="range" min="0" max="1.5" step="0.1" value="0.7" />
             <output id="temperatureValue">0.7</output>
+          </label>
+          <label class="toggle-row">
+            <span>
+              <strong>深度思考</strong>
+              <small>适合复杂分析、方案推演和长问题</small>
+            </span>
+            <input id="deepThinkingInputInSettings" type="checkbox" />
           </label>
           <div class="env-note">
             <strong>环境变量示例</strong>
@@ -127,6 +147,10 @@
                 <textarea id="sqlQuestionInput" spellcheck="false" placeholder="统计最近 30 天每天的订单金额趋势"></textarea>
               </label>
               <button class="sql-action" id="generateSqlButton" type="button">生成 SQL</button>
+              <div class="database-row">
+                <span class="database-status" id="databaseStatus">正在检测数据库配置</span>
+                <button class="sql-action secondary" id="executeSqlButton" type="button" disabled>执行查询</button>
+              </div>
               <pre class="sql-output" id="sqlOutput">SQL 会显示在这里</pre>
               <label>
                 <span>查询结果 JSON / CSV</span>
@@ -141,6 +165,6 @@
       </aside>
       <div class="ide-backdrop" id="ideBackdrop" hidden></div>
     </div>
-    <script src="/app.js" type="module"></script>
+    <script src="/app.js?v=20260520-sidebar-close" type="module"></script>
   </body>
 </html>

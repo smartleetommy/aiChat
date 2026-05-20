@@ -6,6 +6,8 @@ node_modules/
 dist/
 build/
 coverage/
+logs/
+memory/
 
 *.log
 npm-debug.log*
